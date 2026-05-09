@@ -30,7 +30,7 @@ MAX_FILE_VIEW_LINES = 300
 # If the agent edits a file with these extensions, the harness will silently run this command to check for syntax errors.
 # We check for the existence of cargo/npm later, but these are fallbacks for single files.
 LINT_COMMANDS = {
-    ".py": "python -m py_compile {path}",
+    ".py": "python3 -m py_compile {path}",
     ".js": "node --check {path}",
     ".c": "gcc -fsyntax-only {path}",
     ".cpp": "g++ -fsyntax-only {path}",

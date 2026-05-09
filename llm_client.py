@@ -22,7 +22,7 @@ class LLMClient:
 Available tools:
 {tools_description}
 
-Reply with ONLY a comma-separated list of the tool names that might be required to fulfill this request. Do not include spaces or quotes. For example: replace_file_content,search_web
+Reply with ONLY a comma-separated list of the tool names that might be required to fulfill this request. Be liberal with using tools - if in doubt, include it. Do not include spaces or quotes. For example: replace_file_content,search_web
 """
         # Flatten into a single user message. Local models often have buggy `system` role templates!
         chat_history = [m for m in messages if m["role"] != "system"]
