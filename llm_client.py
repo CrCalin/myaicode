@@ -20,22 +20,29 @@ Available tools:
 
 Reply with ONLY a comma-separated list of the tool names that might be required to fulfill this request. Do not include spaces or quotes. For example: replace_file_content,search_web
 """
-        router_messages = [{"role": "system", "content": router_system}]
-        # Append the last few user/assistant messages to give context
-        router_messages.extend(messages[-3:])
+        # Flatten into a single user message. Local models often have buggy `system` role templates!
+        chat_history = [m for m in messages if m["role"] != "system"]
+        
+        flat_prompt = router_system + "\n\nChat History:\n"
+        for m in chat_history[-3:]:
+            flat_prompt += f"{m['role'].upper()}: {m['content']}\n"
+            
+        flat_prompt += "\nWhich tools do you need?"
+            
+        router_messages = [{"role": "user", "content": flat_prompt}]
         
         try:
             response = self.client.chat.completions.create(
                 model=config.MODEL_NAME,
                 messages=router_messages,
-                temperature=0.0,
-                max_tokens=50
+                temperature=0.1
             )
             content = response.choices[0].message.content
             if not content: return []
             
-            # Clean up the output
-            return [t.strip() for t in content.split(",") if t.strip()]
+            # Clean up the output by extracting all words, making it immune to conversational hallucinations
+            import re
+            return re.findall(r'[a-zA-Z_]+', content)
         except Exception as e:
             print(f"\n[Router API Error]: {e}")
             return []
