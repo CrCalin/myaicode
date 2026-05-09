@@ -74,3 +74,33 @@ Reply with ONLY a comma-separated list of the tool names that might be required 
         except Exception as e:
             print(f"\n[LLM API Error]: {e}")
             yield None
+
+    def summarize_content(self, content_to_summarize: str, recent_context: list) -> str:
+        """
+        Uses the LLM to losslessly compress a large block of text.
+        """
+        system_prompt = "You are a highly efficient text compression algorithm. Your job is to summarize the following content, stripping out conversational fluff, but keeping ALL vital technical information (exact file paths, exact code snippets, logic decisions, error messages). Do not respond conversationally. Output ONLY the compressed summary."
+        
+        # Flatten recent context to help the summarizer understand what is important
+        flat_context = ""
+        for m in recent_context:
+            if m["role"] != "system":
+                flat_context += f"{m['role'].upper()}: {m['content']}\n"
+                
+        user_prompt = f"Recent Conversation Context:\n{flat_context}\n\nCONTENT TO COMPRESS:\n{content_to_summarize}\n\nRemember: Output ONLY the compressed summary. Keep technical details intact."
+        
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+        
+        try:
+            response = self.client.chat.completions.create(
+                model=config.MODEL_NAME,
+                messages=messages,
+                temperature=0.0
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            print(f"\n[Summarizer API Error]: {e}")
+            return "[Compression Failed]"

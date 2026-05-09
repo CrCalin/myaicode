@@ -10,8 +10,8 @@ MODEL_NAME = "local-model"
 
 # Context Management Configuration
 MAX_CONTEXT_TOKENS = 32768
-# We leave a buffer for the response and for tokenizer inaccuracies
-CONTEXT_BUFFER_TOKENS = 2000
+# We leave a huge buffer for the response since the model can output up to 8k tokens at once
+CONTEXT_BUFFER_TOKENS = 8000
 SAFE_CONTEXT_THRESHOLD = MAX_CONTEXT_TOKENS - CONTEXT_BUFFER_TOKENS
 
 # Output limits for tools (to avoid flooding context)

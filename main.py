@@ -78,7 +78,7 @@ def main():
                 continue
                 
             if cmd == '/compact':
-                agent.context.prune_if_needed(force=True)
+                agent.context.prune_if_needed(llm_client=agent.llm, force=True)
                 print(f"{Fore.GREEN}Context compacted! Current size: {agent.context.get_total_tokens()} tokens.{Style.RESET_ALL}")
                 continue
                 

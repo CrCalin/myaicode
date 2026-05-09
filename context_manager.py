@@ -40,7 +40,7 @@ class ContextManager:
         # (This accounts for tools schema, jinja templates, and tokenizer differences)
         self.token_overhead = exact_prompt_tokens - estimated_without_overhead
 
-    def add_message(self, role: str, content: str = None, tool_calls=None, tool_call_id=None, name=None, ephemeral=False):
+    def add_message(self, role: str, content: str = None, tool_calls=None, tool_call_id=None, name=None, ephemeral=False, llm_client=None):
         msg = {"role": role}
         if content is not None:
             msg["content"] = content
@@ -54,9 +54,9 @@ class ContextManager:
         msg["_ephemeral"] = ephemeral # Custom flag to track if this can be safely pruned early
         
         self.messages.append(msg)
-        self.prune_if_needed()
+        self.prune_if_needed(llm_client=llm_client)
 
-    def prune_if_needed(self, force=False):
+    def prune_if_needed(self, llm_client=None, force=False):
         # We need to prune if we are exceeding the safe threshold OR if forced
         while (force or self.get_total_tokens() > config.SAFE_CONTEXT_THRESHOLD) and len(self.messages) > 2:
             # Pruning strategy:
@@ -73,7 +73,17 @@ class ContextManager:
                 msg = self.messages[i]
                 if msg.get("_ephemeral") and msg["role"] == "tool" and isinstance(msg.get("content"), str):
                     if len(msg["content"]) > 500:
-                        msg["content"] = "[Content truncated by Context Manager to save space. Run tool again if needed.]\n" + msg["content"][:200]
+                        content_to_sum = msg["content"]
+                        if len(content_to_sum) > 15000:
+                            content_to_sum = content_to_sum[:7500] + "\n...[Middle truncated prior to summarization]...\n" + content_to_sum[-7500:]
+                            
+                        if llm_client:
+                            print("\n[Compacting large tool output via AI...]")
+                            summary = llm_client.summarize_content(content_to_sum, self.messages[-3:])
+                            msg["content"] = f"[AI Summary of Tool Output]:\n{summary}"
+                        else:
+                            msg["content"] = "[Content truncated by Context Manager to save space. Run tool again if needed.]\n" + msg["content"][:200]
+                            
                         msg["_ephemeral"] = False # Mark as already truncated
                         pruned = True
                         break
@@ -84,7 +94,17 @@ class ContextManager:
                 for i in range(max(0, end_idx)):
                     msg = self.messages[i]
                     if isinstance(msg.get("content"), str) and len(msg["content"]) > 1000 and not msg.get("_compacted"):
-                        msg["content"] = msg["content"][:300] + "\n...[Content compacted to save space]...\n" + msg["content"][-200:]
+                        content_to_sum = msg["content"]
+                        if len(content_to_sum) > 15000:
+                            content_to_sum = content_to_sum[:7500] + "\n...[Middle truncated prior to summarization]...\n" + content_to_sum[-7500:]
+                            
+                        if llm_client:
+                            print("\n[Compacting large conversation block via AI...]")
+                            summary = llm_client.summarize_content(content_to_sum, self.messages[-3:])
+                            msg["content"] = f"[AI Compacted Message]:\n{summary}"
+                        else:
+                            msg["content"] = msg["content"][:300] + "\n...[Content compacted to save space]...\n" + msg["content"][-200:]
+                            
                         msg["_compacted"] = True
                         pruned = True
                         break

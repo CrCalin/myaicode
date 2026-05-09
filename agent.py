@@ -69,7 +69,7 @@ ENVIRONMENT CONTEXT:
         """
         if user_input:
             self._update_system_prompt()
-            self.context.add_message("user", content=user_input)
+            self.context.add_message("user", content=user_input, llm_client=self.llm)
             yield {"type": "system", "content": "\nRouting tools..."}
             active_names = self._determine_active_tools(user_input)
             yield {"type": "system", "content": f"Active tools for this task: {', '.join(active_names)}"}
@@ -103,7 +103,8 @@ ENVIRONMENT CONTEXT:
                     content=result_str,
                     tool_call_id=tc["id"],
                     name=function_name,
-                    ephemeral=is_ephemeral
+                    ephemeral=is_ephemeral,
+                    llm_client=self.llm
                 )
                 resume_tool_call = None
                 continue # Loop back to let the LLM think about the tool result
@@ -147,7 +148,7 @@ ENVIRONMENT CONTEXT:
 
             # Turn is over, assemble history
             tc_list = [tc for idx, tc in sorted(tool_calls.items())]
-            self.context.add_message("assistant", content=content, tool_calls=tc_list if tc_list else None)
+            self.context.add_message("assistant", content=content, tool_calls=tc_list if tc_list else None, llm_client=self.llm)
             
             if not tc_list:
                 break # Agent is done
@@ -186,5 +187,6 @@ ENVIRONMENT CONTEXT:
                     content=result_str,
                     tool_call_id=tc["id"],
                     name=function_name,
-                    ephemeral=is_ephemeral
+                    ephemeral=is_ephemeral,
+                    llm_client=self.llm
                 )
