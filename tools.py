@@ -49,6 +49,20 @@ TOOLS = [
                 "required": ["command"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_web",
+            "description": "Search the web for information using SearXNG. Returns concise snippets of the top results.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "The search query"}
+                },
+                "required": ["query"]
+            }
+        }
     }
 ]
 
@@ -68,6 +82,8 @@ def execute_tool(name: str, kwargs: dict) -> tuple[str, bool]:
         return _replace_file_content(**kwargs), False
     elif name == "run_terminal_command":
         return _run_terminal_command(**kwargs), True
+    elif name == "search_web":
+        return _search_web(**kwargs), True
     else:
         return f"Error: Unknown tool {name}", False
 
@@ -149,3 +165,29 @@ def _run_terminal_command(command: str, approved: bool = False) -> str:
         return "Command timed out."
     except Exception as e:
         return f"Error running command: {e}"
+
+def _search_web(query: str) -> str:
+    import urllib.request
+    import urllib.parse
+    import json
+    
+    try:
+        url = f"{config.SEARXNG_URL}/search?q={urllib.parse.quote(query)}&format=json"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 MyAICode/1.0'})
+        with urllib.request.urlopen(req, timeout=10) as response:
+            data = json.loads(response.read().decode('utf-8'))
+            
+        results = data.get('results', [])
+        if not results:
+            return "No results found."
+            
+        output = [f"Search Results for '{query}':\n"]
+        for i, res in enumerate(results[:7]):
+            title = res.get('title', 'No Title')
+            link = res.get('url', 'No URL')
+            snippet = res.get('content', '') or res.get('snippet', '')
+            output.append(f"{i+1}. {title}\n   URL: {link}\n   Snippet: {snippet[:200]}...\n")
+            
+        return "\n".join(output)
+    except Exception as e:
+        return f"Error performing web search: {e}"

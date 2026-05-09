@@ -3,6 +3,7 @@ import os
 # API Configuration
 API_BASE_URL = os.environ.get("OPENAI_API_BASE", "http://172.20.16.1:8080/v1")
 API_KEY = os.environ.get("OPENAI_API_KEY", "sk-no-key-needed")
+SEARXNG_URL = os.environ.get("SEARXNG_URL", "http://172.20.16.1:8888")
 
 # Default model (can be overridden, often local servers ignore this but some need it)
 MODEL_NAME = "local-model"
