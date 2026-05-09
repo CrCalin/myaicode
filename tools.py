@@ -52,10 +52,15 @@ TOOLS = [
     }
 ]
 
+class RequiresApproval(Exception):
+    def __init__(self, command: str):
+        self.command = command
+        super().__init__(f"Command requires manual approval: {command}")
+
 def execute_tool(name: str, kwargs: dict) -> tuple[str, bool]:
     """
     Executes a tool and returns (output_string, is_ephemeral).
-    is_ephemeral=True means the output is long and should be aggressively pruned if context fills up.
+    Raises RequiresApproval if the tool requires manual intervention.
     """
     if name == "view_file_lines":
         return _view_file_lines(**kwargs), True
@@ -114,16 +119,14 @@ def _replace_file_content(path: str, target_string: str, new_string: str) -> str
     except Exception as e:
         return f"Error editing file: {e}"
 
-def _run_terminal_command(command: str) -> str:
+def _run_terminal_command(command: str, approved: bool = False) -> str:
     # Safety Check
     safe_prefixes = ["git", "ls", "cat", "echo", "pwd", "cd", "dir"]
     is_safe = any(command.strip().startswith(prefix) for prefix in safe_prefixes)
     
-    if not is_safe:
-        print(f"\n[!] Agent wants to run potentially destructive command:\n> {command}")
-        choice = input("Allow? (y/N): ")
-        if choice.lower() != 'y':
-            return "Command execution rejected by user."
+    if not is_safe and not approved:
+        # Instead of asking here, we raise an exception to pause the agent and bubble up to the UI
+        raise RequiresApproval(command)
             
     try:
         result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)

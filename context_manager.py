@@ -7,6 +7,9 @@ class ContextManager:
         # tiktoken gives a good enough estimate for Llama models for context management purposes
         self.encoder = tiktoken.get_encoding("cl100k_base")
         self.system_prompt = "You are a helpful AI coding assistant."
+        # Local models inject the tools schema into the prompt, which adds hundreds of tokens.
+        # We start with an estimate and calibrate it dynamically based on the exact usage.
+        self.token_overhead = 500
 
     def set_system_prompt(self, prompt):
         self.system_prompt = prompt
@@ -27,7 +30,14 @@ class ContextManager:
         total = self.count_tokens(self.system_prompt)
         for msg in self.messages:
             total += self._get_message_tokens(msg)
-        return total
+        return total + self.token_overhead
+
+    def calibrate_overhead(self, exact_prompt_tokens: int):
+        # Calculate what our manual estimate was without overhead
+        estimated_without_overhead = self.get_total_tokens() - self.token_overhead
+        # The new overhead is the difference between exact and our manual estimate
+        # (This accounts for tools schema, jinja templates, and tokenizer differences)
+        self.token_overhead = exact_prompt_tokens - estimated_without_overhead
 
     def add_message(self, role: str, content: str = None, tool_calls=None, tool_call_id=None, name=None, ephemeral=False):
         msg = {"role": role}

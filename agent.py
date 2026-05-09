@@ -1,11 +1,7 @@
 import json
-import colorama
-from colorama import Fore, Style
 from context_manager import ContextManager
 from llm_client import LLMClient
-from tools import execute_tool
-
-colorama.init()
+from tools import execute_tool, RequiresApproval
 
 class Agent:
     def __init__(self):
@@ -13,76 +9,128 @@ class Agent:
         self.llm = LLMClient()
         self.system_prompt = """You are MyAICode, an expert AI programming assistant.
 You have access to tools to view files, edit files, and run terminal commands.
-Always verify the context and read files before editing them.
-Do NOT try to output entire files. Use `replace_file_content` to surgically edit files.
-If a user asks you to do something, use the tools available to accomplish it, then report back."""
+
+CRITICAL INSTRUCTIONS:
+1. ONLY USE TOOLS WHEN ABSOLUTELY NECESSARY to fulfill the user's specific request.
+2. If the user asks a general question, or wants an explanation, DO NOT USE TOOLS. Answer directly.
+3. If you have enough information to fulfill the request, output your final answer and DO NOT use tools.
+4. When editing files, use `replace_file_content` to surgically replace only the specific block of code that needs changing. Never try to output the entire file.
+"""
         self.context.set_system_prompt(self.system_prompt)
 
-    def run_interaction_loop(self, user_input: str):
-        self.context.add_message("user", content=user_input)
-        
+    def run(self, user_input: str = None, resume_tool_call=None, approved=False):
+        """
+        Generator that yields events.
+        Events:
+        - {"type": "content", "text": str}
+        - {"type": "system", "content": str}
+        - {"type": "error", "content": str}
+        - {"type": "approval_needed", "command": str, "tool_call": dict}
+        - {"type": "usage", "prompt_tokens": int, "completion_tokens": int}
+        """
+        if user_input:
+            self.context.add_message("user", content=user_input)
+
         while True:
-            print(f"{Fore.CYAN}Thinking (Context: {self.context.get_total_tokens()} tokens)...{Style.RESET_ALL}")
-            
-            # 1. Get messages
-            messages = self.context.get_messages_for_api()
-            
-            # 2. Call LLM
-            response_message = self.llm.chat(messages)
-            
-            if not response_message:
-                print(f"{Fore.RED}Failed to get response from LLM.{Style.RESET_ALL}")
-                break
-                
-            # 3. Add assistant message to context
-            tool_calls = response_message.tool_calls
-            content = response_message.content
-            
-            # Some local models return raw dicts, others return objects. Handle both.
-            tc_list = []
-            if tool_calls:
-                for tc in tool_calls:
-                    tc_dict = {
-                        "id": tc.id,
-                        "type": tc.type,
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments
-                        }
-                    }
-                    tc_list.append(tc_dict)
-            
-            self.context.add_message("assistant", content=content, tool_calls=tc_list if tc_list else None)
-
-            # 4. Print text response if any
-            if content:
-                print(f"{Fore.GREEN}Assistant: {content}{Style.RESET_ALL}")
-
-            # 5. Execute tools if any
-            if not tool_calls:
-                break # Agent is done with its thought process
-                
-            for tool_call in tool_calls:
-                function_name = tool_call.function.name
+            if resume_tool_call:
+                # We are resuming from an approval pause
+                tc = resume_tool_call
+                function_name = tc['function']['name']
                 try:
-                    function_args = json.loads(tool_call.function.arguments)
+                    function_args = json.loads(tc['function']['arguments'])
                 except json.JSONDecodeError:
                     function_args = {}
                     
-                print(f"{Fore.YELLOW}Executing tool: {function_name}({function_args}){Style.RESET_ALL}")
-                
-                # Execute
-                result_str, is_ephemeral = execute_tool(function_name, function_args)
-                
-                # Print a small snippet of the result
+                if function_name == "run_terminal_command" and approved:
+                    function_args['approved'] = True
+                    
+                yield {"type": "system", "content": f"\nExecuting tool: {function_name}({function_args})"}
+                try:
+                    result_str, is_ephemeral = execute_tool(function_name, function_args)
+                except RequiresApproval as e:
+                    # Should not happen since we passed approved=True
+                    yield {"type": "error", "content": "Failed to bypass approval check."}
+                    return
+
                 snippet = result_str[:200] + ("..." if len(result_str) > 200 else "")
-                print(f"{Fore.LIGHTBLACK_EX}Result: {snippet}{Style.RESET_ALL}")
+                yield {"type": "system", "content": f"Result: {snippet}"}
                 
-                # Add result to context
                 self.context.add_message(
                     role="tool",
                     content=result_str,
-                    tool_call_id=tool_call.id,
+                    tool_call_id=tc["id"],
+                    name=function_name,
+                    ephemeral=is_ephemeral
+                )
+                resume_tool_call = None
+                continue # Loop back to let the LLM think about the tool result
+
+            # Normal LLM turn
+            messages = self.context.get_messages_for_api()
+            yield {"type": "system", "content": f"\nThinking (Context estimated: {self.context.get_total_tokens()} tokens)..."}
+            
+            content = ""
+            tool_calls = {}
+            
+            for chunk in self.llm.chat_stream(messages):
+                if chunk is None:
+                    yield {"type": "error", "content": "Failed to get response from LLM."}
+                    return
+                    
+                # Handle exact usage if supported by the server
+                if hasattr(chunk, 'usage') and chunk.usage:
+                    self.context.calibrate_overhead(chunk.usage.prompt_tokens)
+                    yield {
+                        "type": "usage", 
+                        "prompt_tokens": chunk.usage.prompt_tokens, 
+                        "completion_tokens": chunk.usage.completion_tokens
+                    }
+
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if not delta:
+                    continue
+
+                if delta.content:
+                    content += delta.content
+                    yield {"type": "content", "text": delta.content}
+                    
+                if delta.tool_calls:
+                    for tc in delta.tool_calls:
+                        idx = tc.index
+                        if idx not in tool_calls:
+                            tool_calls[idx] = {"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": ""}}
+                        if tc.function.arguments:
+                            tool_calls[idx]["function"]["arguments"] += tc.function.arguments
+
+            # Turn is over, assemble history
+            tc_list = [tc for idx, tc in sorted(tool_calls.items())]
+            self.context.add_message("assistant", content=content, tool_calls=tc_list if tc_list else None)
+            
+            if not tc_list:
+                break # Agent is done
+                
+            # Execute pending tools
+            for tc in tc_list:
+                function_name = tc["function"]["name"]
+                try:
+                    function_args = json.loads(tc["function"]["arguments"])
+                except json.JSONDecodeError:
+                    function_args = {}
+                    
+                yield {"type": "system", "content": f"\nExecuting tool: {function_name}({function_args})"}
+                try:
+                    result_str, is_ephemeral = execute_tool(function_name, function_args)
+                except RequiresApproval as e:
+                    yield {"type": "approval_needed", "command": e.command, "tool_call": tc}
+                    return # Stop generator until UI resumes it
+                    
+                snippet = result_str[:200] + ("..." if len(result_str) > 200 else "")
+                yield {"type": "system", "content": f"Result: {snippet}"}
+                
+                self.context.add_message(
+                    role="tool",
+                    content=result_str,
+                    tool_call_id=tc["id"],
                     name=function_name,
                     ephemeral=is_ephemeral
                 )
