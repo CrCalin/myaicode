@@ -95,6 +95,17 @@ TOOLS = [
     }
 ]
 
+def get_tool_descriptions() -> str:
+    descriptions = []
+    for t in TOOLS:
+        name = t["function"]["name"]
+        desc = t["function"]["description"]
+        descriptions.append(f"- {name}: {desc}")
+    return "\n".join(descriptions)
+
+def get_tools_by_names(names: list) -> list:
+    return [t for t in TOOLS if t["function"]["name"] in names]
+
 class RequiresApproval(Exception):
     def __init__(self, command: str):
         self.command = command

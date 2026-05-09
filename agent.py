@@ -1,13 +1,17 @@
 import json
+import datetime
+import platform
+import os
 from context_manager import ContextManager
 from llm_client import LLMClient
-from tools import execute_tool, RequiresApproval
+from tools import execute_tool, RequiresApproval, get_tool_descriptions, get_tools_by_names
 
 class Agent:
     def __init__(self):
         self.context = ContextManager()
         self.llm = LLMClient()
-        self.system_prompt = """You are MyAICode, an expert AI programming assistant.
+        self.chat_start_time = datetime.datetime.now()
+        self.base_system_prompt = """You are MyAICode, an expert AI programming assistant.
 You have access to tools to view/edit files, run terminal commands, search the codebase, and search the web.
 
 CRITICAL INSTRUCTIONS:
@@ -16,8 +20,36 @@ CRITICAL INSTRUCTIONS:
 3. If you need to find where a function or class is defined, use `search_codebase` instead of guessing file paths.
 4. When editing files, use `replace_file_content`. NOTE: The harness will automatically run a syntax checker after you edit a file. If the tool returns a syntax error, YOU MUST generate another tool call to fix your mistake!
 5. If you have enough information to fulfill the request, output your final answer and DO NOT use tools.
+6. NEVER view, edit, or run commands on files outside the Current Working Directory (and its subdirectories) unless explicitly instructed to do so by the user.
 """
-        self.context.set_system_prompt(self.system_prompt)
+        self._update_system_prompt()
+        self.always_active_tools = ["run_terminal_command", "view_file_lines"]
+        self.active_tool_schemas = get_tools_by_names(self.always_active_tools)
+
+    def _update_system_prompt(self):
+        now = datetime.datetime.now()
+        dynamic_context = f"""
+ENVIRONMENT CONTEXT:
+- Chat Session Started: {self.chat_start_time.strftime('%Y-%m-%d %H:%M:%S')}
+- Current Date/Time: {now.strftime('%Y-%m-%d %H:%M:%S')}
+- Operating System: {platform.system()} {platform.release()}
+- Current Working Directory: {os.getcwd()}
+"""
+        self.context.set_system_prompt(self.base_system_prompt + "\n" + dynamic_context)
+
+    def _determine_active_tools(self, user_input: str):
+        # Always include defaults
+        active_names = set(self.always_active_tools)
+        
+        # Call router
+        messages = self.context.get_messages_for_api()
+        routed_names = self.llm.route_request(messages, get_tool_descriptions())
+        
+        for name in routed_names:
+            active_names.add(name)
+            
+        self.active_tool_schemas = get_tools_by_names(list(active_names))
+        return list(active_names)
 
     def run(self, user_input: str = None, resume_tool_call=None, approved=False):
         """
@@ -30,7 +62,11 @@ CRITICAL INSTRUCTIONS:
         - {"type": "usage", "prompt_tokens": int, "completion_tokens": int}
         """
         if user_input:
+            self._update_system_prompt()
             self.context.add_message("user", content=user_input)
+            yield {"type": "system", "content": "\nRouting tools..."}
+            active_names = self._determine_active_tools(user_input)
+            yield {"type": "system", "content": f"Active tools for this task: {', '.join(active_names)}"}
 
         while True:
             if resume_tool_call:
@@ -73,7 +109,7 @@ CRITICAL INSTRUCTIONS:
             content = ""
             tool_calls = {}
             
-            for chunk in self.llm.chat_stream(messages):
+            for chunk in self.llm.chat_stream(messages, tools=self.active_tool_schemas):
                 if chunk is None:
                     yield {"type": "error", "content": "Failed to get response from LLM."}
                     return
