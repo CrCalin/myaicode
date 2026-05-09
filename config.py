@@ -17,3 +17,14 @@ SAFE_CONTEXT_THRESHOLD = MAX_CONTEXT_TOKENS - CONTEXT_BUFFER_TOKENS
 # Output limits for tools (to avoid flooding context)
 MAX_COMMAND_OUTPUT_LINES = 200
 MAX_FILE_VIEW_LINES = 300
+
+# Auto-Linting Configuration
+# If the agent edits a file with these extensions, the harness will silently run this command to check for syntax errors.
+# We check for the existence of cargo/npm later, but these are fallbacks for single files.
+LINT_COMMANDS = {
+    ".py": "python -m py_compile {path}",
+    ".js": "node --check {path}",
+    ".c": "gcc -fsyntax-only {path}",
+    ".cpp": "g++ -fsyntax-only {path}",
+    ".rs": "rustc --emit=metadata {path}"
+}

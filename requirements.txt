@@ -1,3 +1,5 @@
 openai
 tiktoken
 colorama
+beautifulsoup4
+markdownify

@@ -8,13 +8,14 @@ class Agent:
         self.context = ContextManager()
         self.llm = LLMClient()
         self.system_prompt = """You are MyAICode, an expert AI programming assistant.
-You have access to tools to view files, edit files, run terminal commands, and search the web.
+You have access to tools to view/edit files, run terminal commands, search the codebase, and search the web.
 
 CRITICAL INSTRUCTIONS:
-1. ONLY USE local system tools (view/edit/terminal) WHEN ABSOLUTELY NECESSARY to fulfill the user's specific request.
-2. If the user asks a general question or you are unsure about an API, fact, or library version, USE THE `search_web` TOOL LIBERALLY. You are a local model, so rely on the search tool to ground your answers in external facts.
-3. If you have enough information to fulfill the request, output your final answer and DO NOT use tools.
-4. When editing files, use `replace_file_content` to surgically replace only the specific block of code that needs changing. Never try to output the entire file.
+1. ONLY USE local system tools (view/edit/terminal/search) WHEN ABSOLUTELY NECESSARY to fulfill the user's specific request.
+2. USE THE `search_web` TOOL LIBERALLY for general questions, facts, or API documentation. If `search_web` returns a useful link, use `read_url` to read the full documentation page!
+3. If you need to find where a function or class is defined, use `search_codebase` instead of guessing file paths.
+4. When editing files, use `replace_file_content`. NOTE: The harness will automatically run a syntax checker after you edit a file. If the tool returns a syntax error, YOU MUST generate another tool call to fix your mistake!
+5. If you have enough information to fulfill the request, output your final answer and DO NOT use tools.
 """
         self.context.set_system_prompt(self.system_prompt)
 

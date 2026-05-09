@@ -63,6 +63,35 @@ TOOLS = [
                 "required": ["query"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_url",
+            "description": "Download a webpage and convert it to clean markdown. Useful for reading documentation.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "The URL to read"}
+                },
+                "required": ["url"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_codebase",
+            "description": "Search the local codebase for a regex pattern (similar to ripgrep). Returns file paths and line numbers.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Regex pattern to search for"},
+                    "directory": {"type": "string", "description": "Directory to search in (e.g. '.')"}
+                },
+                "required": ["query", "directory"]
+            }
+        }
     }
 ]
 
@@ -84,6 +113,10 @@ def execute_tool(name: str, kwargs: dict) -> tuple[str, bool]:
         return _run_terminal_command(**kwargs), True
     elif name == "search_web":
         return _search_web(**kwargs), True
+    elif name == "read_url":
+        return _read_url(**kwargs), True
+    elif name == "search_codebase":
+        return _search_codebase(**kwargs), True
     else:
         return f"Error: Unknown tool {name}", False
 
@@ -111,27 +144,49 @@ def _view_file_lines(path: str, start_line: int, end_line: int) -> str:
     except Exception as e:
         return f"Error reading file: {e}"
 
+def _check_syntax(path: str):
+    ext = os.path.splitext(path)[1]
+    if ext in config.LINT_COMMANDS:
+        lint_cmd = config.LINT_COMMANDS[ext].format(path=path)
+        try:
+            res = subprocess.run(lint_cmd, shell=True, capture_output=True, text=True, timeout=10)
+            if res.returncode != 0:
+                error_output = (res.stderr or res.stdout).strip()
+                return f"BUT a syntax error was detected by the auto-linter:\n{error_output}\nPlease fix it."
+        except Exception:
+            pass
+    return None
+
 def _replace_file_content(path: str, target_string: str, new_string: str) -> str:
     try:
+        is_new_file = False
         if not os.path.exists(path):
              # Let's auto-create if it doesn't exist and target_string is empty
             if target_string == "":
                 with open(path, 'w', encoding='utf-8') as f:
                     f.write(new_string)
-                return f"Successfully created new file {path}."
-            return f"Error: File '{path}' does not exist."
+                is_new_file = True
+            else:
+                return f"Error: File '{path}' does not exist."
+        else:    
+            with open(path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                
+            if target_string not in content:
+                return "Error: target_string not found exactly in the file. No changes made. Check whitespace and try again."
+                
+            new_content = content.replace(target_string, new_string, 1)
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(new_content)
             
-        with open(path, 'r', encoding='utf-8') as f:
-            content = f.read()
+        # Auto-Linting Check
+        lint_err = _check_syntax(path)
+        
+        action = "created new file" if is_new_file else "replaced content in"
+        if lint_err:
+            return f"Successfully {action} {path}, {lint_err}"
             
-        if target_string not in content:
-            return "Error: target_string not found exactly in the file. No changes made. Check whitespace and try again."
-            
-        new_content = content.replace(target_string, new_string, 1)
-        with open(path, 'w', encoding='utf-8') as f:
-            f.write(new_content)
-            
-        return f"Successfully replaced content in {path}."
+        return f"Successfully {action} {path}."
     except Exception as e:
         return f"Error editing file: {e}"
 
@@ -191,3 +246,61 @@ def _search_web(query: str) -> str:
         return "\n".join(output)
     except Exception as e:
         return f"Error performing web search: {e}"
+
+def _read_url(url: str) -> str:
+    import urllib.request
+    from bs4 import BeautifulSoup
+    from markdownify import markdownify as md
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 MyAICode/1.0'})
+        with urllib.request.urlopen(req, timeout=15) as response:
+            html = response.read().decode('utf-8', errors='ignore')
+            
+        soup = BeautifulSoup(html, 'html.parser')
+        # Remove scripts and styles
+        for script in soup(["script", "style"]):
+            script.extract()
+            
+        markdown_text = md(str(soup), heading_style="ATX").strip()
+        
+        # Truncate if too long (e.g. 10000 chars)
+        if len(markdown_text) > 10000:
+            markdown_text = markdown_text[:10000] + "\n\n... [Content Truncated due to length]"
+            
+        return markdown_text
+    except Exception as e:
+        return f"Error reading URL: {e}"
+
+def _search_codebase(query: str, directory: str) -> str:
+    import re
+    try:
+        if not os.path.isdir(directory):
+            return f"Error: {directory} is not a valid directory."
+            
+        pattern = re.compile(query)
+        results = []
+        
+        for root, dirs, files in os.walk(directory):
+            # Skip hidden dirs like .git or node_modules
+            dirs[:] = [d for d in dirs if not d.startswith('.') and d != 'node_modules']
+            
+            for file in files:
+                if file.startswith('.'): continue
+                path = os.path.join(root, file)
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        for i, line in enumerate(f):
+                            if pattern.search(line):
+                                results.append(f"{path}:{i+1}: {line.strip()}")
+                                if len(results) >= 50:
+                                    results.append("... [More results truncated. Refine your query.]")
+                                    return "\n".join(results)
+                except UnicodeDecodeError:
+                    pass # Skip binary files
+                    
+        if not results:
+            return "No matches found."
+            
+        return "\n".join(results)
+    except Exception as e:
+        return f"Error searching codebase: {e}"
