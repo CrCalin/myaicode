@@ -92,6 +92,36 @@ TOOLS = [
                 "required": ["query", "directory"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_directory_tree",
+            "description": "List the structure of a directory as an ASCII tree. Useful for exploring a project. Automatically ignores bulky hidden folders.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "The directory path (e.g. '.')"},
+                    "max_depth": {"type": "integer", "description": "Maximum depth to traverse (default 2)"}
+                },
+                "required": ["path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "manage_plan",
+            "description": "Create, update, or clear your internal task checklist/plan. This plan is injected into your system prompt on every turn to help you remember your goals.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "description": "Action to perform: 'set', 'clear'", "enum": ["set", "clear"]},
+                    "content": {"type": "string", "description": "The markdown content of the plan (required if action is 'set')"}
+                },
+                "required": ["action"]
+            }
+        }
     }
 ]
 
@@ -128,6 +158,8 @@ def execute_tool(name: str, kwargs: dict) -> tuple[str, bool]:
         return _read_url(**kwargs), True
     elif name == "search_codebase":
         return _search_codebase(**kwargs), True
+    elif name == "list_directory_tree":
+        return _list_directory_tree(**kwargs), True
     else:
         return f"Error: Unknown tool {name}", False
 
@@ -315,3 +347,40 @@ def _search_codebase(query: str, directory: str) -> str:
         return "\n".join(results)
     except Exception as e:
         return f"Error searching codebase: {e}"
+
+def _list_directory_tree(path: str, max_depth: int = 2) -> str:
+    try:
+        if not os.path.exists(path):
+            return f"Error: Path '{path}' does not exist."
+            
+        ignore_dirs = {'.git', 'node_modules', '__pycache__', 'venv', '.venv', '.idea', '.vscode'}
+        
+        tree = []
+        base_depth = path.rstrip(os.sep).count(os.sep)
+        
+        for root, dirs, files in os.walk(path):
+            # Prune ignored directories
+            dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith('.')]
+            
+            # Calculate current depth
+            current_depth = root.rstrip(os.sep).count(os.sep) - base_depth
+            if current_depth > max_depth:
+                del dirs[:] # Stop recursing further
+                continue
+                
+            indent = "  " * current_depth
+            basename = os.path.basename(root)
+            if current_depth == 0:
+                tree.append(f"📁 {path}/")
+            else:
+                tree.append(f"{indent}📁 {basename}/")
+                
+            # Only show files if we haven't hit max depth
+            if current_depth < max_depth:
+                for f in files:
+                    if f.startswith('.'): continue
+                    tree.append(f"{indent}  📄 {f}")
+                    
+        return "\n".join(tree)
+    except Exception as e:
+        return f"Error listing directory: {e}"

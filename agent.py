@@ -23,7 +23,7 @@ CRITICAL INSTRUCTIONS:
 6. NEVER view, edit, or run commands on files outside the Current Working Directory (and its subdirectories) unless explicitly instructed to do so by the user.
 """
         self._update_system_prompt()
-        self.always_active_tools = ["run_terminal_command", "view_file_lines"]
+        self.always_active_tools = ["run_terminal_command", "view_file_lines", "list_directory_tree", "manage_plan"]
         self.active_tool_schemas = get_tools_by_names(self.always_active_tools)
 
     def _update_system_prompt(self):
@@ -35,6 +35,9 @@ ENVIRONMENT CONTEXT:
 - Operating System: {platform.system()} {platform.release()}
 - Current Working Directory: {os.getcwd()}
 """
+        if self.context.plan:
+            dynamic_context += f"\nCURRENT TASK PLAN:\n{self.context.plan}\n"
+            
         self.context.set_system_prompt(self.base_system_prompt + "\n" + dynamic_context)
 
     def _determine_active_tools(self, user_input: str):
@@ -49,7 +52,10 @@ ENVIRONMENT CONTEXT:
             active_names.add(name)
             
         self.active_tool_schemas = get_tools_by_names(list(active_names))
-        return list(active_names)
+        
+        # Filter out LLM hallucinations from the UI printout
+        valid_names = [t["function"]["name"] for t in self.active_tool_schemas]
+        return valid_names
 
     def run(self, user_input: str = None, resume_tool_call=None, approved=False):
         """
@@ -156,7 +162,18 @@ ENVIRONMENT CONTEXT:
                     
                 yield {"type": "system", "content": f"\nExecuting tool: {function_name}({function_args})"}
                 try:
-                    result_str, is_ephemeral = execute_tool(function_name, function_args)
+                    if function_name == "manage_plan":
+                        action = function_args.get("action", "set")
+                        if action == "clear":
+                            self.context.plan = None
+                            result_str = "Plan cleared successfully."
+                        else:
+                            self.context.plan = function_args.get("content", "")
+                            result_str = "Plan updated successfully. It will be injected into your prompt."
+                        is_ephemeral = True
+                        self._update_system_prompt() # Instantly refresh prompt
+                    else:
+                        result_str, is_ephemeral = execute_tool(function_name, function_args)
                 except RequiresApproval as e:
                     yield {"type": "approval_needed", "command": e.command, "tool_call": tc}
                     return # Stop generator until UI resumes it

@@ -3,3 +3,4 @@ tiktoken
 colorama
 beautifulsoup4
 markdownify
+pyreadline3

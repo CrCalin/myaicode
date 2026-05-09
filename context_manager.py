@@ -9,7 +9,8 @@ class ContextManager:
         self.system_prompt = "You are a helpful AI coding assistant."
         # Local models inject the tools schema into the prompt, which adds hundreds of tokens.
         # We start with an estimate and calibrate it dynamically based on the exact usage.
-        self.token_overhead = 500
+        self.token_overhead = 200
+        self.plan = None
 
     def set_system_prompt(self, prompt):
         self.system_prompt = prompt
@@ -55,18 +56,20 @@ class ContextManager:
         self.messages.append(msg)
         self.prune_if_needed()
 
-    def prune_if_needed(self):
-        # We need to prune if we are exceeding the safe threshold
-        while self.get_total_tokens() > config.SAFE_CONTEXT_THRESHOLD and len(self.messages) > 2:
+    def prune_if_needed(self, force=False):
+        # We need to prune if we are exceeding the safe threshold OR if forced
+        while (force or self.get_total_tokens() > config.SAFE_CONTEXT_THRESHOLD) and len(self.messages) > 2:
             # Pruning strategy:
             # 1. Try to find the oldest ephemeral message (like a huge command output) and summarize/truncate it
-            # 2. If no ephemeral messages, start dropping the oldest interactions (user/assistant pairs)
+            # 2. If no ephemeral messages, try to compact large regular messages (user/assistant)
+            # 3. If everything is compacted, start dropping the oldest interactions
             
             pruned = False
             
             # Step 1: Look for old ephemeral messages to truncate
-            # We skip the most recent few messages so the agent doesn't immediately forget what it just read
-            for i in range(len(self.messages) - 3):
+            # We skip the most recent few messages so the agent doesn't immediately forget what it just read (unless forced)
+            end_idx = len(self.messages) if force else len(self.messages) - 3
+            for i in range(max(0, end_idx)):
                 msg = self.messages[i]
                 if msg.get("_ephemeral") and msg["role"] == "tool" and isinstance(msg.get("content"), str):
                     if len(msg["content"]) > 500:
@@ -74,8 +77,25 @@ class ContextManager:
                         msg["_ephemeral"] = False # Mark as already truncated
                         pruned = True
                         break
+                        
+                        
+            if not pruned:
+                # Step 2: Look for non-ephemeral large messages to compact
+                for i in range(max(0, end_idx)):
+                    msg = self.messages[i]
+                    if isinstance(msg.get("content"), str) and len(msg["content"]) > 1000 and not msg.get("_compacted"):
+                        msg["content"] = msg["content"][:300] + "\n...[Content compacted to save space]...\n" + msg["content"][-200:]
+                        msg["_compacted"] = True
+                        pruned = True
+                        break
+
+            if pruned:
+                continue
+                
+            if force:
+                break # If forced, we only want to compact, not wipe the chat history!
             
-            # Step 2: Drop oldest messages
+            # Step 3: Drop oldest messages
             if not pruned:
                 # Find the first non-system message and drop it (usually user/assistant pairs)
                 # Be careful not to drop tool calls without dropping the corresponding tool response

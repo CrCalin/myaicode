@@ -1,4 +1,9 @@
 import sys
+try:
+    import readline
+except ImportError:
+    pass
+
 from agent import Agent
 import colorama
 from colorama import Fore, Style
@@ -47,7 +52,7 @@ def consume_agent_events(agent: Agent, generator):
 
 def main():
     print(f"{Fore.MAGENTA}=== MyAICode Local Agent Harness (V2 Stream) ==={Style.RESET_ALL}")
-    print("Type your request. Type 'exit' or 'quit' to stop.")
+    print("Type your request. Type '/help' to see available commands.")
     
     agent = Agent()
     
@@ -60,8 +65,23 @@ def main():
     while True:
         try:
             user_input = input(f"\n{Fore.BLUE}User: {Style.RESET_ALL}")
-            if user_input.lower() in ['exit', 'quit']:
+            cmd = user_input.strip().lower()
+            
+            if cmd in ['/exit', '/quit']:
                 break
+                
+            if cmd == '/help':
+                print(f"{Fore.YELLOW}Available Commands:{Style.RESET_ALL}")
+                print(f"  {Fore.CYAN}/help{Style.RESET_ALL}    - Show this help message")
+                print(f"  {Fore.CYAN}/compact{Style.RESET_ALL} - Force compact the context by truncating old tool outputs")
+                print(f"  {Fore.CYAN}/exit{Style.RESET_ALL}    - Exit the application")
+                continue
+                
+            if cmd == '/compact':
+                agent.context.prune_if_needed(force=True)
+                print(f"{Fore.GREEN}Context compacted! Current size: {agent.context.get_total_tokens()} tokens.{Style.RESET_ALL}")
+                continue
+                
             if not user_input.strip():
                 continue
                 
