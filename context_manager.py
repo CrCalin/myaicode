@@ -121,6 +121,18 @@ class ContextManager:
                 # A simple approach for a basic harness: drop the oldest message.
                 self.messages.pop(0)
 
+        # Last-resort safety guard: if we still exceed the limit after all compaction and dropping
+        # (e.g. a single enormous user message), hard-truncate the remaining message content.
+        if not force and self.get_total_tokens() > config.SAFE_CONTEXT_THRESHOLD:
+            print("\n[Context Manager] WARNING: Could not compact context enough. Hard-truncating remaining messages.")
+            budget = config.SAFE_CONTEXT_THRESHOLD - self.count_tokens(self.system_prompt) - self.token_overhead - 100
+            for msg in self.messages:
+                if isinstance(msg.get("content"), str) and len(msg["content"]) > 100:
+                    # Calculate how many chars we can afford (rough 4 chars/token heuristic)
+                    char_budget = max(200, budget * 4 // len(self.messages))
+                    if len(msg["content"]) > char_budget:
+                        msg["content"] = msg["content"][:char_budget] + "\n...[Hard-truncated by Context Manager]..."
+
     def get_messages_for_api(self):
         # Strip out our custom metadata before sending to API
         api_messages = [{"role": "system", "content": self.system_prompt}]

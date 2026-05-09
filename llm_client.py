@@ -115,9 +115,19 @@ Reply with ONLY a comma-separated list of the tool names that might be required 
             response = self.client.chat.completions.create(
                 model=config.MODEL_NAME,
                 messages=messages,
-                temperature=0.0
+                temperature=0.0,
+                stream=True
             )
-            return response.choices[0].message.content
+            result = ""
+            token_count = 0
+            for chunk in response:
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if delta and delta.content:
+                    result += delta.content
+                    token_count += 1
+                    print(f"\r[Compacting: {token_count} tokens]", end="", flush=True)
+            print()  # newline after counter
+            return result
         except Exception as e:
             print(f"\n[Summarizer API Error]: {e}")
             return "[Compression Failed]"
