@@ -46,21 +46,21 @@ ENVIRONMENT CONTEXT:
         self.context.set_system_prompt(self.base_system_prompt + "\n" + dynamic_context)
 
     def _determine_active_tools(self, user_input: str):
-        # Always include defaults
-        active_names = set(self.always_active_tools)
+        defaults = set(self.always_active_tools)
         
         # Call router
         messages = self.context.get_messages_for_api()
         routed_names = self.llm.route_request(messages, get_tool_descriptions())
         
-        for name in routed_names:
-            active_names.add(name)
-            
+        active_names = defaults | set(routed_names)
         self.active_tool_schemas = get_tools_by_names(list(active_names))
         
-        # Filter out LLM hallucinations from the UI printout
-        valid_names = [t["function"]["name"] for t in self.active_tool_schemas]
-        return valid_names
+        # Filter out LLM hallucinations — only keep names that exist in the schema registry
+        valid_names = {t["function"]["name"] for t in self.active_tool_schemas}
+        return {
+            "default": [n for n in self.always_active_tools if n in valid_names],
+            "routed":  [n for n in valid_names if n not in defaults]
+        }
 
     def run(self, user_input: str = None, resume_tool_call=None, approved=False):
         """
@@ -82,8 +82,8 @@ ENVIRONMENT CONTEXT:
                 self.context.prune_if_needed(llm_client=self.llm)
 
             yield {"type": "system", "content": "\nRouting tools..."}
-            active_names = self._determine_active_tools(user_input)
-            yield {"type": "system", "content": f"Active tools for this task: {', '.join(active_names)}"}
+            tool_groups = self._determine_active_tools(user_input)
+            yield {"type": "tools_active", "default": tool_groups["default"], "routed": tool_groups["routed"]}
 
         while True:
             if resume_tool_call:

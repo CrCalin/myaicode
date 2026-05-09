@@ -31,6 +31,12 @@ def consume_agent_events(agent: Agent, generator):
         elif event["type"] == "usage":
             print(f"{Fore.MAGENTA}\n[Exact Usage: {event['prompt_tokens']} prompt, {event['completion_tokens']} completion]{Style.RESET_ALL}")
             
+        elif event["type"] == "tools_active":
+            default_part = f"{Fore.LIGHTBLACK_EX}{', '.join(event['default'])}{Style.RESET_ALL}"
+            routed_part  = f"{Fore.CYAN}{', '.join(event['routed'])}{Style.RESET_ALL}" if event["routed"] else ""
+            tools_str = default_part + (f"{Fore.LIGHTBLACK_EX}, {Style.RESET_ALL}" + routed_part if routed_part else "")
+            print(f"{Fore.LIGHTBLACK_EX}Active tools: {Style.RESET_ALL}{tools_str}")
+            
         elif event["type"] == "approval_needed":
             print(f"\n{Fore.RED}[!] Agent wants to run potentially destructive command:{Style.RESET_ALL}")
             print(f"{Fore.YELLOW}> {event['command']}{Style.RESET_ALL}")

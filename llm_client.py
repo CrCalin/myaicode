@@ -1,4 +1,5 @@
 from openai import OpenAI
+import tiktoken
 import config
 from tools import TOOLS
 
@@ -9,6 +10,7 @@ class LLMClient:
             api_key=config.API_KEY,
             timeout=60.0  # Fail loudly after 60s instead of hanging forever
         )
+        self._encoder = tiktoken.get_encoding("cl100k_base")
 
     def route_request(self, messages: list, tools_description: str) -> list:
         """
@@ -42,17 +44,14 @@ Reply with ONLY a comma-separated list of the tool names that might be required 
                 messages=router_messages,
                 temperature=0.1,
                 max_tokens=800,
-                stream=True
+                stream=True,
+                extra_body=config.UTILITY_EXTRA_BODY
             )
             content = ""
-            token_count = 0
             for chunk in response:
                 delta = chunk.choices[0].delta if chunk.choices else None
                 if delta and delta.content:
                     content += delta.content
-                    token_count += 1
-                    print(f"\r[Router: {token_count} tokens]", end="", flush=True)
-            print()  # newline after counter
             
             if not content:
                 return []
@@ -94,9 +93,17 @@ Reply with ONLY a comma-separated list of the tool names that might be required 
 
     def summarize_content(self, content_to_summarize: str, recent_context: list) -> str:
         """
-        Uses the LLM to losslessly compress a large block of text.
+        Uses the LLM to aggressively compress a large block of text.
         """
-        system_prompt = "You are a highly efficient text compression algorithm. Your job is to summarize the following content, stripping out conversational fluff, but keeping ALL vital technical information (exact file paths, exact code snippets, logic decisions, error messages). Do not respond conversationally. Output ONLY the compressed summary."
+        system_prompt = (
+            "You are an aggressive, LOSSY text compression engine. Your mission is to maximize token reduction by any means necessary. "
+            "Target 80-95% compression. You are explicitly authorized to DROP information that is not critical to the current task. "
+            "Be ruthless: delete filler, pleasantries, repetition, and verbose explanations. "
+            "Preserve ONLY vital technical anchors: core file paths, key function names, critical error messages, and final decisions. "
+            "If a long code block is present, summarize its logic in 1-2 lines unless it was the specific subject of the last 2 messages. "
+            "Use ultra-terse notation, abbreviations, and bullet points. Omit all non-essential parts of speech. "
+            "Do NOT explain your reasoning. Output ONLY the compressed result."
+        )
         
         # Flatten recent context to help the summarizer understand what is important
         flat_context = ""
@@ -104,7 +111,7 @@ Reply with ONLY a comma-separated list of the tool names that might be required 
             if m["role"] != "system":
                 flat_context += f"{m['role'].upper()}: {m['content']}\n"
                 
-        user_prompt = f"Recent Conversation Context:\n{flat_context}\n\nCONTENT TO COMPRESS:\n{content_to_summarize}\n\nRemember: Output ONLY the compressed summary. Keep technical details intact."
+        user_prompt = f"Recent Conversation Context:\n{flat_context}\n\nCONTENT TO COMPRESS:\n{content_to_summarize}\n\nRemember: Output ONLY the ultra-compressed result. Drop all low-value details."
         
         messages = [
             {"role": "system", "content": system_prompt},
@@ -112,11 +119,14 @@ Reply with ONLY a comma-separated list of the tool names that might be required 
         ]
         
         try:
+            original_tokens = max(1, len(self._encoder.encode(content_to_summarize)))
+
             response = self.client.chat.completions.create(
                 model=config.MODEL_NAME,
                 messages=messages,
                 temperature=0.0,
-                stream=True
+                stream=True,
+                extra_body=config.UTILITY_EXTRA_BODY
             )
             result = ""
             token_count = 0
@@ -125,8 +135,9 @@ Reply with ONLY a comma-separated list of the tool names that might be required 
                 if delta and delta.content:
                     result += delta.content
                     token_count += 1
-                    print(f"\r[Compacting: {token_count} tokens]", end="", flush=True)
-            print()  # newline after counter
+                    print(f"\r[Compacting: {token_count}/{original_tokens} tokens]", end="", flush=True)
+            reduction = max(0, 100 - int(token_count / original_tokens * 100))
+            print(f"\r[Compacting: {token_count}/{original_tokens} tokens — {reduction}% reduction]")
             return result
         except Exception as e:
             print(f"\n[Summarizer API Error]: {e}")

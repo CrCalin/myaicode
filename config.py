@@ -8,6 +8,14 @@ SEARXNG_URL = os.environ.get("SEARXNG_URL", "http://172.20.16.1:8888")
 # Default model (can be overridden, often local servers ignore this but some need it)
 MODEL_NAME = "local-model"
 
+# Extra body parameters to pass to the API for utility calls (tool router, compaction).
+# These are forwarded as raw JSON — use to disable reasoning/thinking on supported models.
+# Examples:
+#   Qwen3 on llama.cpp:  {"chat_template_kwargs": {"enable_thinking": False}}
+#   OpenAI o-series:     {"reasoning_effort": "low"}
+#   Set to {} to disable (safe default — unknown fields are ignored by most servers)
+UTILITY_EXTRA_BODY = {"chat_template_kwargs": {"enable_thinking": False}}
+
 # Context Management Configuration
 MAX_CONTEXT_TOKENS = 32768
 # We leave a huge buffer for the response since the model can output up to 8k tokens at once

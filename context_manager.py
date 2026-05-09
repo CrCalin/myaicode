@@ -77,7 +77,8 @@ class ContextManager:
                             content_to_sum = content_to_sum[:7500] + "\n...[Middle truncated prior to summarization]...\n" + content_to_sum[-7500:]
                             
                         if llm_client:
-                            print("\n[Compacting large tool output via AI...]")
+                            current_tokens = self.get_total_tokens()
+                            print(f"\n[Compacting large tool output via AI... context={current_tokens} tokens]")
                             summary = llm_client.summarize_content(content_to_sum, self.messages[-3:])
                             msg["content"] = f"[AI Summary of Tool Output]:\n{summary}"
                         else:
@@ -98,7 +99,8 @@ class ContextManager:
                             content_to_sum = content_to_sum[:7500] + "\n...[Middle truncated prior to summarization]...\n" + content_to_sum[-7500:]
                             
                         if llm_client:
-                            print("\n[Compacting large conversation block via AI...]")
+                            current_tokens = self.get_total_tokens()
+                            print(f"\n[Compacting large conversation block via AI... context={current_tokens} tokens]")
                             summary = llm_client.summarize_content(content_to_sum, self.messages[-3:])
                             msg["content"] = f"[AI Compacted Message]:\n{summary}"
                         else:
