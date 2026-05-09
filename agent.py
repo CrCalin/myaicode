@@ -2,6 +2,7 @@ import json
 import datetime
 import platform
 import os
+import time
 import config
 from context_manager import ContextManager
 from llm_client import LLMClient
@@ -127,6 +128,8 @@ ENVIRONMENT CONTEXT:
             
             content = ""
             tool_calls = {}
+            start_time = time.time()
+            usage_emitted = False
             
             for chunk in self.llm.chat_stream(messages, tools=self.active_tool_schemas):
                 if chunk is None:
@@ -139,8 +142,10 @@ ENVIRONMENT CONTEXT:
                     yield {
                         "type": "usage", 
                         "prompt_tokens": chunk.usage.prompt_tokens, 
-                        "completion_tokens": chunk.usage.completion_tokens
+                        "completion_tokens": chunk.usage.completion_tokens,
+                        "time_elapsed": time.time() - start_time
                     }
+                    usage_emitted = True
 
                 delta = chunk.choices[0].delta if chunk.choices else None
                 if not delta:
@@ -157,6 +162,36 @@ ENVIRONMENT CONTEXT:
                             tool_calls[idx] = {"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": ""}}
                         if tc.function.arguments:
                             tool_calls[idx]["function"]["arguments"] += tc.function.arguments
+                
+                # Emit live metrics for every chunk (content or tool call)
+                current_tokens = self.llm.count_tokens(content)
+                for tc in tool_calls.values():
+                    current_tokens += self.llm.count_tokens(tc["function"]["name"])
+                    current_tokens += self.llm.count_tokens(tc["function"]["arguments"])
+                
+                yield {
+                    "type": "metrics",
+                    "tokens": current_tokens,
+                    "elapsed": time.time() - start_time
+                }
+
+            # Turn is over, assemble history
+            elapsed = time.time() - start_time
+            
+            # If usage wasn't emitted (common on some local servers), estimate it
+            if not usage_emitted:
+                completion_tokens = self.llm.count_tokens(content)
+                # Also count tool call tokens if any
+                for tc in tool_calls.values():
+                    completion_tokens += self.llm.count_tokens(tc["function"]["name"])
+                    completion_tokens += self.llm.count_tokens(tc["function"]["arguments"])
+                
+                yield {
+                    "type": "usage",
+                    "prompt_tokens": None, # We don't know the exact prompt tokens without server help
+                    "completion_tokens": completion_tokens,
+                    "time_elapsed": elapsed
+                }
 
             # Turn is over, assemble history
             tc_list = [tc for idx, tc in sorted(tool_calls.items())]

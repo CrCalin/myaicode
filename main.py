@@ -14,30 +14,62 @@ colorama.init()
 
 def consume_agent_events(agent: Agent, generator):
     """Helper to consume events from the agent generator and handle UI concerns."""
+    last_metrics_len = 0
+    
+    def clear_metrics():
+        nonlocal last_metrics_len
+        if last_metrics_len > 0:
+            print("\b" * last_metrics_len, end="", flush=True)
+            print(" " * last_metrics_len, end="", flush=True)
+            print("\b" * last_metrics_len, end="", flush=True)
+            last_metrics_len = 0
+
     for event in generator:
         if event["type"] == "content":
+            clear_metrics()
             # Stream text live
             print(f"{Fore.GREEN}{event['text']}{Style.RESET_ALL}", end="", flush=True)
         
+        elif event["type"] == "metrics":
+            clear_metrics()
+            tokens = event.get('tokens', 0)
+            elapsed = event.get('elapsed', 0)
+            metrics_str = f" {Fore.LIGHTBLACK_EX}({tokens}t, {elapsed:.1f}s){Style.RESET_ALL}"
+            plain_metrics = f" ({tokens}t, {elapsed:.1f}s)"
+            last_metrics_len = len(plain_metrics)
+            print(metrics_str, end="", flush=True)
+
         elif event["type"] == "system":
+            clear_metrics()
             print(f"{Fore.LIGHTBLACK_EX}{event['content']}{Style.RESET_ALL}")
             
         elif event["type"] == "system_stream":
+            clear_metrics()
             print(f"{Fore.LIGHTBLACK_EX}{event['text']}{Style.RESET_ALL}", end="", flush=True)
             
         elif event["type"] == "error":
+            clear_metrics()
             print(f"{Fore.RED}{event['content']}{Style.RESET_ALL}")
             
         elif event["type"] == "usage":
-            print(f"{Fore.MAGENTA}\n[Exact Usage: {event['prompt_tokens']} prompt, {event['completion_tokens']} completion]{Style.RESET_ALL}")
+            clear_metrics()
+            prompt = event.get('prompt_tokens')
+            completion = event.get('completion_tokens', 0)
+            elapsed = event.get('time_elapsed', 0)
+            tps = completion / elapsed if elapsed > 0 else 0
+            
+            prompt_str = f"{prompt} prompt, " if prompt is not None else ""
+            print(f"{Fore.MAGENTA}\n[Usage: {prompt_str}{completion} completion | {elapsed:.1f}s | {tps:.1f} tps]{Style.RESET_ALL}")
             
         elif event["type"] == "tools_active":
+            clear_metrics()
             default_part = f"{Fore.LIGHTBLACK_EX}{', '.join(event['default'])}{Style.RESET_ALL}"
             routed_part  = f"{Fore.CYAN}{', '.join(event['routed'])}{Style.RESET_ALL}" if event["routed"] else ""
             tools_str = default_part + (f"{Fore.LIGHTBLACK_EX}, {Style.RESET_ALL}" + routed_part if routed_part else "")
             print(f"{Fore.LIGHTBLACK_EX}Active tools: {Style.RESET_ALL}{tools_str}")
             
         elif event["type"] == "approval_needed":
+            clear_metrics()
             print(f"\n{Fore.RED}[!] Agent wants to run potentially destructive command:{Style.RESET_ALL}")
             print(f"{Fore.YELLOW}> {event['command']}{Style.RESET_ALL}")
             choice = input("Allow? (y/N): ")

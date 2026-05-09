@@ -11,6 +11,12 @@ class LLMClient:
             timeout=60.0  # Fail loudly after 60s instead of hanging forever
         )
         self._encoder = tiktoken.get_encoding("cl100k_base")
+        
+    def count_tokens(self, text: str) -> int:
+        """Count tokens in a string using the cl100k_base encoder."""
+        if not text:
+            return 0
+        return len(self._encoder.encode(text))
 
     def route_request(self, messages: list, tools_description: str) -> list:
         """

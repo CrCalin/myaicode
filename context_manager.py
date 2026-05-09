@@ -56,8 +56,13 @@ class ContextManager:
         self.messages.append(msg)
 
     def prune_if_needed(self, llm_client=None, force=False):
-        # We need to prune if we are exceeding the safe threshold OR if forced
-        while (force or self.get_total_tokens() > config.SAFE_CONTEXT_THRESHOLD) and len(self.messages) > 2:
+        # We target staying under the safe threshold.
+        # If forced (manual /compact), we target slightly less (90%) to ensure we actually free up space.
+        target = config.SAFE_CONTEXT_THRESHOLD
+        if force:
+            target = int(min(target, self.get_total_tokens()) * 0.9)
+
+        while self.get_total_tokens() > target and len(self.messages) > 2:
             # Pruning strategy:
             # 1. Try to find the oldest ephemeral message (like a huge command output) and summarize/truncate it
             # 2. If no ephemeral messages, try to compact large regular messages (user/assistant)
@@ -65,9 +70,15 @@ class ContextManager:
             
             pruned = False
             
+            # We skip the most recent few messages so the agent doesn't immediately forget what it just read
+            # (Unless we are extremely over budget)
+            recent_buffer = 3
+            if self.get_total_tokens() > config.MAX_CONTEXT_TOKENS:
+                recent_buffer = 1
+                
+            end_idx = len(self.messages) - recent_buffer
+            
             # Step 1: Look for old ephemeral messages to truncate
-            # We skip the most recent few messages so the agent doesn't immediately forget what it just read (unless forced)
-            end_idx = len(self.messages) if force else len(self.messages) - 3
             for i in range(max(0, end_idx)):
                 msg = self.messages[i]
                 if msg.get("_ephemeral") and msg["role"] == "tool" and isinstance(msg.get("content"), str):
@@ -87,7 +98,6 @@ class ContextManager:
                         msg["_ephemeral"] = False # Mark as already truncated
                         pruned = True
                         break
-                        
                         
             if not pruned:
                 # Step 2: Look for non-ephemeral large messages to compact
@@ -114,14 +124,11 @@ class ContextManager:
                 continue
                 
             if force:
-                break # If forced, we only want to compact, not wipe the chat history!
+                # If we are forced and nothing left to prune, stop (don't drop history in manual compact)
+                break
             
-            # Step 3: Drop oldest messages
-            if not pruned:
-                # Find the first non-system message and drop it (usually user/assistant pairs)
-                # Be careful not to drop tool calls without dropping the corresponding tool response
-                # A simple approach for a basic harness: drop the oldest message.
-                self.messages.pop(0)
+            # Step 3: Drop oldest messages (last resort)
+            self.messages.pop(0)
 
         # Last-resort safety guard: if we still exceed the limit after all compaction and dropping
         # (e.g. a single enormous user message), hard-truncate the remaining message content.
