@@ -61,29 +61,86 @@ def consume_agent_events(agent: Agent, generator):
                 new_gen = agent.run(resume_tool_call=event['tool_call'], approved=True)
                 consume_agent_events(agent, new_gen)
 
+def print_sessions(limit=5):
+    sessions = session_manager.list_sessions(limit=limit)
+    if not sessions:
+        print(f"{Fore.YELLOW}No sessions found.{Style.RESET_ALL}")
+        return
+    
+    print(f"{Fore.CYAN}Latest {len(sessions)} sessions:{Style.RESET_ALL}")
+    for i, s in enumerate(sessions):
+        print(f"  {Fore.YELLOW}[{i+1}]{Style.RESET_ALL} {s}")
+
 def main():
     print(f"{Fore.MAGENTA}=== MyAICode Local Agent Harness (V2 Stream) ==={Style.RESET_ALL}")
     
     args = sys.argv[1:]
-    is_new = False
-    
-    if args:
-        if args[0].lower() == "new":
-            is_new = True
-            if len(args) > 1:
-                print(f"{Fore.RED}Usage: python main.py [new]{Style.RESET_ALL}")
-                sys.exit(1)
-        else:
-            print(f"{Fore.RED}Usage: python main.py [new]{Style.RESET_ALL}")
-            sys.exit(1)
-        
     session_name = None
     state_dict = None
     
-    if is_new:
-        session_name = session_manager.get_new_session_name()
-        print(f"{Fore.CYAN}Starting new session: {session_name}.json{Style.RESET_ALL}")
-    else:
+    # Handle CLI arguments
+    if args:
+        cmd = args[0].lower()
+        if cmd == "new":
+            session_name = session_manager.get_new_session_name()
+            print(f"{Fore.CYAN}Starting new session: {session_name}.json{Style.RESET_ALL}")
+        elif cmd == "session":
+            if len(args) > 1:
+                target = args[1]
+                resolved = session_manager.resolve_session_name(target)
+                if resolved:
+                    state_dict = session_manager.load_session(resolved)
+                    if state_dict:
+                        session_name = resolved
+                        print(f"{Fore.CYAN}Loaded session: {session_name}{Style.RESET_ALL}")
+                    else:
+                        print(f"{Fore.RED}Error: Failed to load session '{resolved}'{Style.RESET_ALL}")
+                        sys.exit(1)
+                else:
+                    print(f"{Fore.RED}Error: Session '{target}' not found.{Style.RESET_ALL}")
+                    sys.exit(1)
+            else:
+                print(f"{Fore.RED}Usage: python main.py session <name|index>{Style.RESET_ALL}")
+                sys.exit(1)
+        elif cmd == "sessions":
+            if len(args) > 1:
+                sub = args[1].lower()
+                if sub == "delete":
+                    if len(args) > 2:
+                        target = args[2]
+                        if session_manager.delete_session(target):
+                            print(f"{Fore.GREEN}Session '{target}' deleted.{Style.RESET_ALL}")
+                        else:
+                            print(f"{Fore.RED}Error: Could not delete session '{target}'.{Style.RESET_ALL}")
+                        sys.exit(0)
+                    else:
+                        print(f"{Fore.RED}Usage: python main.py sessions delete <name|index>{Style.RESET_ALL}")
+                        sys.exit(1)
+                elif sub == "deleteall":
+                    count = session_manager.delete_all_sessions()
+                    print(f"{Fore.GREEN}Deleted {count} sessions.{Style.RESET_ALL}")
+                    sys.exit(0)
+                elif sub.isdigit():
+                    print_sessions(limit=int(sub))
+                    sys.exit(0)
+                else:
+                    print(f"{Fore.RED}Unknown sessions command: {sub}{Style.RESET_ALL}")
+                    sys.exit(1)
+            else:
+                print_sessions()
+                sys.exit(0)
+        else:
+            print(f"{Fore.RED}Unknown command: {cmd}{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}Available commands:{Style.RESET_ALL}")
+            print("  new                   - Start new session")
+            print("  session <name|index>  - Start with specific session")
+            print("  sessions [limit]      - List recent sessions")
+            print("  sessions delete <idx> - Delete a session")
+            print("  sessions deleteall    - Delete all sessions")
+            sys.exit(1)
+            
+    # Default behavior: load last or start new
+    if not session_name:
         last_session = session_manager.get_last_session()
         if last_session:
             state_dict = session_manager.load_session(last_session)
@@ -121,9 +178,18 @@ def main():
                 print(f"  {Fore.CYAN}/help{Style.RESET_ALL}    - Show this help message")
                 print(f"  {Fore.CYAN}/compact{Style.RESET_ALL} - Force compact the context by truncating old tool outputs")
                 print(f"  {Fore.CYAN}/new{Style.RESET_ALL}        - Start a fresh session (autosaves current)")
+                print(f"  {Fore.CYAN}/sessions [n]{Style.RESET_ALL}- List latest n sessions")
                 print(f"  {Fore.CYAN}/save [name]{Style.RESET_ALL} - Save session to file")
-                print(f"  {Fore.CYAN}/load <name>{Style.RESET_ALL} - Load a session from file (autosaves current)")
+                print(f"  {Fore.CYAN}/load <name|idx>{Style.RESET_ALL} - Load a session from file (autosaves current)")
                 print(f"  {Fore.CYAN}/exit{Style.RESET_ALL}    - Exit the application")
+                continue
+                
+            if cmd.startswith('/sessions'):
+                parts = cmd.split()
+                limit = 5
+                if len(parts) > 1 and parts[1].isdigit():
+                    limit = int(parts[1])
+                print_sessions(limit=limit)
                 continue
                 
             if cmd == '/new':
@@ -136,29 +202,35 @@ def main():
                 
             if cmd.startswith('/save'):
                 parts = cmd.split(maxsplit=1)
+                new_name = agent.session_name
                 if len(parts) > 1:
-                    agent.session_name = parts[1].strip()
-                path = session_manager.save_session(agent.session_name, agent.context.export_state())
-                print(f"{Fore.GREEN}Session saved to: {path}{Style.RESET_ALL}")
+                    new_name = parts[1].strip()
+                
+                path = session_manager.save_session(new_name, agent.context.export_state())
+                if path:
+                    agent.session_name = new_name
+                    print(f"{Fore.GREEN}Session saved to: {path}{Style.RESET_ALL}")
                 continue
                 
             if cmd.startswith('/load'):
                 parts = cmd.split(maxsplit=1)
                 if len(parts) > 1:
                     target = parts[1].strip()
-                    session_manager.save_session(agent.session_name, agent.context.export_state())
-                    data = session_manager.load_session(target)
-                    if data:
-                        agent.session_name = target
-                        if not agent.session_name.endswith(".json"):
-                            agent.session_name += ".json"
-                        agent.context.import_state(data)
-                        agent._update_system_prompt()
-                        print(f"{Fore.GREEN}Session loaded: {agent.session_name}{Style.RESET_ALL}")
+                    resolved = session_manager.resolve_session_name(target)
+                    if resolved:
+                        session_manager.save_session(agent.session_name, agent.context.export_state())
+                        data = session_manager.load_session(resolved)
+                        if data:
+                            agent.session_name = resolved
+                            agent.context.import_state(data)
+                            agent._update_system_prompt()
+                            print(f"{Fore.GREEN}Session loaded: {agent.session_name}{Style.RESET_ALL}")
+                        else:
+                            print(f"{Fore.RED}Failed to load session: {resolved}{Style.RESET_ALL}")
                     else:
-                        print(f"{Fore.RED}Failed to load session: {target}{Style.RESET_ALL}")
+                        print(f"{Fore.RED}Session '{target}' not found.{Style.RESET_ALL}")
                 else:
-                    print(f"{Fore.RED}Usage: /load <session_name>{Style.RESET_ALL}")
+                    print(f"{Fore.RED}Usage: /load <name|idx>{Style.RESET_ALL}")
                 continue
                 
             if cmd == '/compact':
@@ -172,7 +244,7 @@ def main():
             gen = agent.run(user_input=user_input)
             consume_agent_events(agent, gen)
             
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, EOFError):
             print("\nExiting...")
             break
         except Exception as e:
