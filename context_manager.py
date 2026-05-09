@@ -40,7 +40,7 @@ class ContextManager:
         # (This accounts for tools schema, jinja templates, and tokenizer differences)
         self.token_overhead = exact_prompt_tokens - estimated_without_overhead
 
-    def add_message(self, role: str, content: str = None, tool_calls=None, tool_call_id=None, name=None, ephemeral=False, llm_client=None):
+    def add_message(self, role: str, content: str = None, tool_calls=None, tool_call_id=None, name=None, ephemeral=False):
         msg = {"role": role}
         if content is not None:
             msg["content"] = content
@@ -54,7 +54,6 @@ class ContextManager:
         msg["_ephemeral"] = ephemeral # Custom flag to track if this can be safely pruned early
         
         self.messages.append(msg)
-        self.prune_if_needed(llm_client=llm_client)
 
     def prune_if_needed(self, llm_client=None, force=False):
         # We need to prune if we are exceeding the safe threshold OR if forced
@@ -129,3 +128,15 @@ class ContextManager:
             api_msg = {k: v for k, v in msg.items() if not k.startswith("_")}
             api_messages.append(api_msg)
         return api_messages
+
+    def export_state(self) -> dict:
+        return {
+            "messages": self.messages,
+            "plan": self.plan,
+            "token_overhead": self.token_overhead
+        }
+
+    def import_state(self, state_dict: dict):
+        self.messages = state_dict.get("messages", [])
+        self.plan = state_dict.get("plan", None)
+        self.token_overhead = state_dict.get("token_overhead", 0)

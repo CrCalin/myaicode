@@ -6,12 +6,14 @@ class LLMClient:
     def __init__(self):
         self.client = OpenAI(
             base_url=config.API_BASE_URL,
-            api_key=config.API_KEY
+            api_key=config.API_KEY,
+            timeout=60.0  # Fail loudly after 60s instead of hanging forever
         )
 
     def route_request(self, messages: list, tools_description: str) -> list:
         """
-        Calls the LLM quickly to decide which tools to use.
+        Calls the LLM to decide which tools to use. Uses streaming to avoid
+        hanging on servers that return empty non-streaming responses.
         Returns a list of tool names.
         """
         router_system = f"""You are a tool routing assistant. The user wants to accomplish a task.
@@ -25,20 +27,35 @@ Reply with ONLY a comma-separated list of the tool names that might be required 
         
         flat_prompt = router_system + "\n\nChat History:\n"
         for m in chat_history[-3:]:
-            flat_prompt += f"{m['role'].upper()}: {m['content']}\n"
+            content = str(m.get("content") or "")
+            flat_prompt += f"{m['role'].upper()}: {content}\n"
             
         flat_prompt += "\nWhich tools do you need?"
             
         router_messages = [{"role": "user", "content": flat_prompt}]
         
         try:
+            # Use streaming + max_tokens to prevent hanging on servers that return
+            # empty non-streaming responses (e.g. when model tries to call a tool)
             response = self.client.chat.completions.create(
                 model=config.MODEL_NAME,
                 messages=router_messages,
-                temperature=0.1
+                temperature=0.1,
+                max_tokens=800,
+                stream=True
             )
-            content = response.choices[0].message.content
-            if not content: return []
+            content = ""
+            token_count = 0
+            for chunk in response:
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if delta and delta.content:
+                    content += delta.content
+                    token_count += 1
+                    print(f"\r[Router: {token_count} tokens]", end="", flush=True)
+            print()  # newline after counter
+            
+            if not content:
+                return []
             
             # Clean up the output by extracting all words, making it immune to conversational hallucinations
             import re

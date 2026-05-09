@@ -2,13 +2,18 @@ import json
 import datetime
 import platform
 import os
+import config
 from context_manager import ContextManager
 from llm_client import LLMClient
 from tools import execute_tool, RequiresApproval, get_tool_descriptions, get_tools_by_names
 
 class Agent:
-    def __init__(self):
+    def __init__(self, state_dict=None, session_name=None):
         self.context = ContextManager()
+        if state_dict:
+            self.context.import_state(state_dict)
+            
+        self.session_name = session_name
         self.llm = LLMClient()
         self.chat_start_time = datetime.datetime.now()
         self.base_system_prompt = """You are MyAICode, an expert AI programming assistant.
@@ -69,7 +74,13 @@ ENVIRONMENT CONTEXT:
         """
         if user_input:
             self._update_system_prompt()
-            self.context.add_message("user", content=user_input, llm_client=self.llm)
+            self.context.add_message("user", content=user_input)
+
+            # Explicitly prune BEFORE routing so we know exactly when a slow AI compaction happens
+            if self.context.get_total_tokens() > config.SAFE_CONTEXT_THRESHOLD:
+                yield {"type": "system", "content": "\n[Context near limit — compacting before routing...]"}
+                self.context.prune_if_needed(llm_client=self.llm)
+
             yield {"type": "system", "content": "\nRouting tools..."}
             active_names = self._determine_active_tools(user_input)
             yield {"type": "system", "content": f"Active tools for this task: {', '.join(active_names)}"}
@@ -103,9 +114,10 @@ ENVIRONMENT CONTEXT:
                     content=result_str,
                     tool_call_id=tc["id"],
                     name=function_name,
-                    ephemeral=is_ephemeral,
-                    llm_client=self.llm
+                    ephemeral=is_ephemeral
                 )
+                # Cheap silent prune after tool results (no AI summarization here)
+                self.context.prune_if_needed(llm_client=None)
                 resume_tool_call = None
                 continue # Loop back to let the LLM think about the tool result
 
@@ -148,7 +160,7 @@ ENVIRONMENT CONTEXT:
 
             # Turn is over, assemble history
             tc_list = [tc for idx, tc in sorted(tool_calls.items())]
-            self.context.add_message("assistant", content=content, tool_calls=tc_list if tc_list else None, llm_client=self.llm)
+            self.context.add_message("assistant", content=content, tool_calls=tc_list if tc_list else None)
             
             if not tc_list:
                 break # Agent is done
@@ -187,6 +199,7 @@ ENVIRONMENT CONTEXT:
                     content=result_str,
                     tool_call_id=tc["id"],
                     name=function_name,
-                    ephemeral=is_ephemeral,
-                    llm_client=self.llm
+                    ephemeral=is_ephemeral
                 )
+                # Cheap silent prune after tool results (no AI summarization here)
+                self.context.prune_if_needed(llm_client=None)

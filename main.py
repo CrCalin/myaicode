@@ -1,4 +1,6 @@
 import sys
+import atexit
+import session_manager
 try:
     import readline
 except ImportError:
@@ -19,6 +21,9 @@ def consume_agent_events(agent: Agent, generator):
         
         elif event["type"] == "system":
             print(f"{Fore.LIGHTBLACK_EX}{event['content']}{Style.RESET_ALL}")
+            
+        elif event["type"] == "system_stream":
+            print(f"{Fore.LIGHTBLACK_EX}{event['text']}{Style.RESET_ALL}", end="", flush=True)
             
         elif event["type"] == "error":
             print(f"{Fore.RED}{event['content']}{Style.RESET_ALL}")
@@ -52,15 +57,50 @@ def consume_agent_events(agent: Agent, generator):
 
 def main():
     print(f"{Fore.MAGENTA}=== MyAICode Local Agent Harness (V2 Stream) ==={Style.RESET_ALL}")
+    
+    args = sys.argv[1:]
+    is_new = False
+    
+    if args:
+        if args[0].lower() == "new":
+            is_new = True
+            if len(args) > 1:
+                print(f"{Fore.RED}Usage: python main.py [new]{Style.RESET_ALL}")
+                sys.exit(1)
+        else:
+            print(f"{Fore.RED}Usage: python main.py [new]{Style.RESET_ALL}")
+            sys.exit(1)
+        
+    session_name = None
+    state_dict = None
+    
+    if is_new:
+        session_name = session_manager.get_new_session_name()
+        print(f"{Fore.CYAN}Starting new session: {session_name}.json{Style.RESET_ALL}")
+    else:
+        last_session = session_manager.get_last_session()
+        if last_session:
+            state_dict = session_manager.load_session(last_session)
+            if state_dict:
+                session_name = last_session
+                print(f"{Fore.CYAN}Loaded previous session: {session_name}{Style.RESET_ALL}")
+            else:
+                session_name = session_manager.get_new_session_name()
+                print(f"{Fore.CYAN}Starting new session: {session_name}.json{Style.RESET_ALL}")
+        else:
+            session_name = session_manager.get_new_session_name()
+            print(f"{Fore.CYAN}Starting new session: {session_name}.json{Style.RESET_ALL}")
+            
+    agent = Agent(state_dict=state_dict, session_name=session_name)
+    
+    def save_on_exit():
+        if agent.session_name:
+            session_manager.save_session(agent.session_name, agent.context.export_state())
+            
+    atexit.register(save_on_exit)
+
     print("Type your request. Type '/help' to see available commands.")
     
-    agent = Agent()
-    
-    if len(sys.argv) > 1:
-        initial_prompt = " ".join(sys.argv[1:])
-        print(f"{Fore.BLUE}User: {initial_prompt}{Style.RESET_ALL}")
-        gen = agent.run(user_input=initial_prompt)
-        consume_agent_events(agent, gen)
     
     while True:
         try:
@@ -74,7 +114,45 @@ def main():
                 print(f"{Fore.YELLOW}Available Commands:{Style.RESET_ALL}")
                 print(f"  {Fore.CYAN}/help{Style.RESET_ALL}    - Show this help message")
                 print(f"  {Fore.CYAN}/compact{Style.RESET_ALL} - Force compact the context by truncating old tool outputs")
+                print(f"  {Fore.CYAN}/new{Style.RESET_ALL}        - Start a fresh session (autosaves current)")
+                print(f"  {Fore.CYAN}/save [name]{Style.RESET_ALL} - Save session to file")
+                print(f"  {Fore.CYAN}/load <name>{Style.RESET_ALL} - Load a session from file (autosaves current)")
                 print(f"  {Fore.CYAN}/exit{Style.RESET_ALL}    - Exit the application")
+                continue
+                
+            if cmd == '/new':
+                session_manager.save_session(agent.session_name, agent.context.export_state())
+                agent.session_name = session_manager.get_new_session_name()
+                agent.context.import_state({})
+                agent._update_system_prompt()
+                print(f"{Fore.CYAN}Started new session: {agent.session_name}.json{Style.RESET_ALL}")
+                continue
+                
+            if cmd.startswith('/save'):
+                parts = cmd.split(maxsplit=1)
+                if len(parts) > 1:
+                    agent.session_name = parts[1].strip()
+                path = session_manager.save_session(agent.session_name, agent.context.export_state())
+                print(f"{Fore.GREEN}Session saved to: {path}{Style.RESET_ALL}")
+                continue
+                
+            if cmd.startswith('/load'):
+                parts = cmd.split(maxsplit=1)
+                if len(parts) > 1:
+                    target = parts[1].strip()
+                    session_manager.save_session(agent.session_name, agent.context.export_state())
+                    data = session_manager.load_session(target)
+                    if data:
+                        agent.session_name = target
+                        if not agent.session_name.endswith(".json"):
+                            agent.session_name += ".json"
+                        agent.context.import_state(data)
+                        agent._update_system_prompt()
+                        print(f"{Fore.GREEN}Session loaded: {agent.session_name}{Style.RESET_ALL}")
+                    else:
+                        print(f"{Fore.RED}Failed to load session: {target}{Style.RESET_ALL}")
+                else:
+                    print(f"{Fore.RED}Usage: /load <session_name>{Style.RESET_ALL}")
                 continue
                 
             if cmd == '/compact':
