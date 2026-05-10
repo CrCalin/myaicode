@@ -1,4 +1,13 @@
 import sys
+
+# Force UTF-8 encoding for standard streams to prevent charmap errors on Windows when printing emojis
+if hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+
 import atexit
 import session_manager
 try:
