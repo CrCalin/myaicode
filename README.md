@@ -7,81 +7,88 @@ The following is the AI's description of the project:
 
 # MyAICode - Local AI Coding Assistant
 
-MyAICode is a terminal-based AI coding assistant designed to interface with local or remote OpenAI-compatible LLMs. It features advanced context management, real-time token tracking, robust session handling, and autonomous tool execution for file editing, code navigation, and terminal command execution.
+MyAICode is a versatile AI coding assistant designed to interface with local or remote OpenAI-compatible LLMs. It features a dual-interface system (Terminal & Web), advanced context management, real-time token tracking, and autonomous tool execution.
 
 ## Key Features
 
-- **Autonomous Tool Execution**: The agent can autonomously run terminal commands, view and edit files, and search the web or local codebase to fulfill complex user requests.
-- **Smart Context Management**: Uses `tiktoken` to accurately track context size. When the context approaches its limit, the agent intelligently prunes or AI-summarizes older messages to prevent context exhaustion while maintaining essential history.
-- **Real-Time Streaming & Metrics**: Streams responses to the terminal in real-time, accompanied by live token generation counts, elapsed time, and Tokens-Per-Second (TPS) throughput metrics.
-- **Advanced Session Management**: Chat sessions are auto-saved and can be retrieved using recency-based indices or specific names. Easily resume where you left off.
-- **Safety First**: Destructive commands or significant file modifications pause execution to request explicit user approval.
+- **Modern Web UI**: A sleek, React-based web interface inspired by ChatGPT, featuring streaming responses, tool call visualizations, and persistent session management.
+- **Terminal UI (TUI)**: A robust, colorized terminal interface for those who prefer the command line.
+- **Autonomous Tool Execution**: The agent can autonomously run terminal commands, view and edit files, and search the web or local codebase.
+- **Smart Context Management**: Uses `tiktoken` to accurately track context size and intelligently prunes or AI-summarizes history to stay within context limits.
+- **Real-Time Metrics**: Live tracking of token generation, elapsed time, and throughput (TPS) during response generation.
+- **Safety First**: Potentially destructive commands or significant file edits require explicit user approval.
 
 ## Architecture Overview
 
-The codebase is modularized to separate API communication, agent reasoning, UI, and session state:
+The codebase is split into a Python backend and a React frontend:
 
-- **`main.py`**: The entry point. Handles the command-line interface, user input loops, and parses agent events (content, metrics, tool usage) for colorized terminal output.
-- **`agent.py`**: The core reasoning loop. Orchestrates turns between the user, the LLM, and the tool execution engine. It aggregates context and handles the live streaming event generator.
-- **`llm_client.py`**: Manages communication with OpenAI-compatible endpoints. It handles tool routing logic, content summarization requests, and accurate client-side token counting (`cl100k_base`).
-- **`context_manager.py`**: The memory engine. Tracks token overhead and aggressively prunes or compacts the chat history (starting with the oldest/largest messages) when the `SAFE_CONTEXT_THRESHOLD` is approached.
-- **`session_manager.py`**: Handles local file persistence of conversation states, implementing a robust recency-indexed retrieval system.
-- **`tools.py`**: Defines the schemas and execution logic for the agent's capabilities (e.g., `replace_file_content`, `run_command`, `search_web`).
-- **`config.py`**: Central configuration for API endpoints, keys, model names, and context buffer limits.
+- **`main.py`**: The entry point router. Directs to either the Terminal UI or the Web API.
+- **`tui.py`**: Contains all logic for the interactive terminal experience.
+- **`web.py`**: A Flask-based API server that streams agent events to the frontend via Server-Sent Events (SSE).
+- **`agent.py`**: The core reasoning engine orchestrating turns between the LLM and tools.
+- **`frontend/`**: A modern React application (Vite + CSS) providing the premium web experience.
+- **`llm_client.py`**: Handles API communication, tool routing, and token counting.
+- **`context_manager.py`**: Manages the conversation history and context pruning logic.
+- **`session_manager.py`**: Handles persistent storage of chat sessions.
+- **`tools.py`**: Core tool definitions and execution logic.
 
 ## Getting Started
 
-### Prerequisites
+### Backend Setup
 
-Ensure you have Python installed along with the required dependencies:
+1. Install Python dependencies:
 ```bash
 pip install -r requirements.txt
+# Requires: flask, flask-cors, openai, tiktoken, colorama, beautifulsoup4
 ```
-*(Dependencies generally include `openai`, `tiktoken`, `colorama`, and `beautifulsoup4`)*
 
-### Configuration
+2. Configure `config.py` with your LLM provider details (API Key, Base URL, Model Name).
 
-Edit `config.py` or set the necessary environment variables to point to your LLM provider (local e.g., LM Studio, Ollama, or remote e.g., OpenAI, OpenRouter):
-- `OPENAI_API_BASE`
-- `OPENAI_API_KEY`
-- `MODEL_NAME`
+### Frontend Setup (for Web UI)
+
+1. Ensure you have Node.js installed.
+2. Install dependencies:
+```bash
+cd frontend
+npm install
+```
 
 ## Usage
 
-Start a new session or auto-resume your most recent one:
+### Option 1: Terminal Interface (TUI)
+
+Run the standard terminal-based chat:
 ```bash
-python main.py
+python main.py tui
+# Or simply 'python main.py' as it defaults to TUI
 ```
 
-Start a explicitly fresh session:
+### Option 2: Web Interface
+
+1. Start the backend API:
 ```bash
-python main.py new
+python main.py web
 ```
 
-### In-App Commands
+2. Start the frontend development server:
+```bash
+cd frontend
+npm run dev
+```
+3. Open `http://localhost:5173` in your browser.
 
-While in the chat interface, you can use the following commands:
-- `/new` - Start a fresh session (autosaves the current one).
-- `/sessions [n]` - List the `n` most recent sessions.
-- `/load <name|idx>` - Load a previous session by its name or index number.
-- `/save [name]` - Save the current session with a specific name (numeric names are disallowed).
-- `/compact` - Force the context manager to immediately prune/summarize the context to save space.
-- `/help` - Display the help menu.
-- `/exit` - Safely autosave and exit the application.
+---
 
-### CLI Management
+### CLI Session Management
 
-You can also manage sessions directly from the command line:
+Manage your history directly from the command line:
 ```bash
 # List all recent sessions
-python main.py sessions
+python main.py tui sessions
 
-# Load the 2nd most recent session
-python main.py session 2
+# Load a specific session
+python main.py tui session 2
 
-# Delete a specific session
-python main.py sessions delete <name|idx>
-
-# Delete all sessions
-python main.py sessions deleteall
+# Delete sessions
+python main.py tui sessions delete <idx>
 ```
