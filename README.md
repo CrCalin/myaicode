@@ -1,3 +1,7 @@
+# Why?
+I built this project because existing ones don't handle small context windows gracefully, and i can't run more than 65k context window on a competent model on my pc.
+The following is the AI's description of the project:
+
 > [!WARNING]
 > **DISCLAIMER:** This project is entirely **vibe-coded**. 
 
