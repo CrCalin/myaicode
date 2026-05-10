@@ -24,7 +24,7 @@ CRITICAL INSTRUCTIONS:
 1. ONLY USE local system tools (view/edit/terminal/search) WHEN ABSOLUTELY NECESSARY to fulfill the user's specific request.
 2. USE THE `search_web` TOOL LIBERALLY for general questions, facts, or API documentation. If `search_web` returns a useful link, use `read_url` to read the full documentation page!
 3. If you need to find where a function or class is defined, use `search_codebase` instead of guessing file paths.
-4. When editing files, use `replace_file_content`. NOTE: The harness will automatically run a syntax checker after you edit a file. If the tool returns a syntax error, YOU MUST generate another tool call to fix your mistake!
+4. When editing or creating files, you MUST EXCLUSIVELY use the `replace_file_content` tool. NEVER use bash commands (like sed, echo, awk, etc.) to modify files. NOTE: The harness will automatically run a syntax checker after you edit a file. If the tool returns a syntax error, YOU MUST generate another tool call to fix your mistake!
 5. If you have enough information to fulfill the request, output your final answer and DO NOT use tools.
 6. NEVER view, edit, or run commands on files outside the Current Working Directory (and its subdirectories) unless explicitly instructed to do so by the user.
 """
