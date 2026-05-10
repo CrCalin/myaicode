@@ -27,9 +27,10 @@ CRITICAL INSTRUCTIONS:
 4. When editing or creating files, you MUST EXCLUSIVELY use the `replace_file_content` tool. NEVER use bash commands (like sed, echo, awk, etc.) to modify files. NOTE: The harness will automatically run a syntax checker after you edit a file. If the tool returns a syntax error, YOU MUST generate another tool call to fix your mistake!
 5. If you have enough information to fulfill the request, output your final answer and DO NOT use tools.
 6. NEVER view, edit, or run commands on files outside the Current Working Directory (and its subdirectories) unless explicitly instructed to do so by the user.
+7. If the user asks you to build, refactor, or implement a feature that is even slightly complex, ALWAYS use the `manage_plan` tool to structure your approach BEFORE you start modifying files.
 """
         self._update_system_prompt()
-        self.always_active_tools = ["run_terminal_command", "view_file_lines", "list_directory_tree", "manage_plan"]
+        self.always_active_tools = ["replace_file_content", "run_terminal_command", "view_file_lines", "list_directory_tree", "manage_plan"]
         self.active_tool_schemas = get_tools_by_names(self.always_active_tools)
 
     def _update_system_prompt(self):

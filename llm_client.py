@@ -28,9 +28,7 @@ class LLMClient:
 Available tools:
 {tools_description}
 
-CRITICAL: If the user wants to edit or create a file, you MUST route to `replace_file_content`. NEVER rely on `run_terminal_command` for file editing (e.g. sed, echo, cat).
-
-Reply with ONLY a comma-separated list of the tool names that might be required to fulfill this request. Be liberal with using tools - if in doubt, include it. Do not include spaces or quotes. For example: replace_file_content,search_web
+Reply with ONLY a comma-separated list of the tool names that might be required to fulfill this request. Be liberal with using tools - if in doubt, include it. Do not include spaces or quotes. For example: search_web,read_url
 """
         # Flatten into a single user message. Local models often have buggy `system` role templates!
         chat_history = [m for m in messages if m["role"] != "system"]
