@@ -1,5 +1,8 @@
 # Why?
-I built this project because existing ones don't handle small context windows gracefully, and i can't run more than 65k context window on a competent model on my pc.
+I built this project because existing ones don't handle small context windows gracefully, and i can't run more than 65k context window on a competent model on my pc. Thought it would be fun to throw AI at the problem.
+
+**2026 UPDATE:** In the mean time, the local AI landscape has shifted a lot. I have access to much nicer models with bigger context windows, and [pi](https://github.com/earendil-works/pi) exists, and solves any and all problems this project attempted to solve. I will leave it up for reference, but **archived**. 
+
 The following is the AI's description of the project:
 
 > [!WARNING]
